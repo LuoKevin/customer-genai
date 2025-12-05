@@ -8,3 +8,5 @@ sentence_transformers
 langchain_groq
 xmltodict
 langgraph
+crewai
+openai
