@@ -40,33 +40,46 @@ class ClassificationResult:
         return "query_handler"
 
 
-def classify(message: str) -> ClassificationResult:
-    """Classify a user message with an OpenAI chat model."""
+def classify(
+    message: str,
+    *,
+    model: str = DEFAULT_MODEL,
+    client=None,
+    trace_id: Optional[str] = None,
+) -> ClassificationResult:
+    """Classify a user message with an OpenAI chat model, with graceful fallback."""
     text = (message or "").strip()
     if not text:
         raise ValueError("Message must be a non-empty string.")
 
-    client = get_openai_client()
-    completion = client.chat.completions.create(
-        model=DEFAULT_MODEL,
-        temperature=0,
-        response_format={"type": "json_object"},
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are a banking customer support triage agent. "
-                    "Classify the user's message into exactly one of: "
-                    "positive_feedback, negative_feedback, query. "
-                    "Return JSON with fields: label, rationale."
-                ),
-            },
-            {"role": "user", "content": text},
-        ],
-    )
-    raw = completion.choices[0].message.content or "{}"
-    parsed = json.loads(raw)
-    label_value = parsed.get("label", "").strip().lower().replace(" ", "_")
+    client = client or get_openai_client()
+    try:
+        completion = client.chat.completions.create(
+            model=model,
+            temperature=0,
+            response_format={"type": "json_object"},
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a banking customer support triage agent. "
+                        "Classify the user's message into exactly one of: "
+                        "positive_feedback, negative_feedback, query. "
+                        "Return JSON with fields: label, rationale."
+                    ),
+                },
+                {"role": "user", "content": text},
+            ],
+        )
+        raw = completion.choices[0].message.content or "{}"
+        parsed = json.loads(raw)
+    except Exception:
+        rationale = "Classifier unavailable; routing to query handler."
+        if trace_id:
+            rationale += f" trace_id={trace_id}"
+        return ClassificationResult(label=ClassificationLabel.QUERY, rationale=rationale)
+
+    label_value = str(parsed.get("label", "")).strip().lower().replace(" ", "_")
 
     # Normalize model output to our enum values.
     if label_value in {"positive", "positive_feedback", "pos"}:
@@ -76,4 +89,7 @@ def classify(message: str) -> ClassificationResult:
     else:
         label = ClassificationLabel.QUERY
 
-    return ClassificationResult(label=label, rationale=parsed.get("rationale"))
+    rationale = parsed.get("rationale") or "No rationale provided by model."
+    if trace_id:
+        rationale += f" trace_id={trace_id}"
+    return ClassificationResult(label=label, rationale=rationale)
