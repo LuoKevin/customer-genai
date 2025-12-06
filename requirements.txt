@@ -10,3 +10,4 @@ xmltodict
 langgraph
 crewai
 openai
+pydantic
