@@ -11,3 +11,4 @@ langgraph
 crewai
 openai
 pydantic
+pydantic-settings

@@ -19,3 +19,4 @@ dist/
 .coverage
 .idea
 .DS_Store
+data

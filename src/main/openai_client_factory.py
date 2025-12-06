@@ -29,8 +29,5 @@ def get_openai_client(
     key = api_key or (cfg.openai_api_key if cfg else os.getenv("OPENAI_API_KEY"))
     if not key:
         raise EnvironmentError("Set OPENAI_API_KEY or pass api_key to get_openai_client.")
-
-    endpoint = base_url or (cfg.openai_base_url if cfg else os.getenv("OPENAI_BASE_URL"))
-    if endpoint:
-        return OpenAI(api_key=key, base_url=endpoint)
+        
     return OpenAI(api_key=key)

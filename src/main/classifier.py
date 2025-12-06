@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Literal, Optional
 
-from .openai_client_factory import get_openai_client
+from src.main.openai_client_factory import get_openai_client
 
 
 DEFAULT_MODEL = "gpt-4o-mini"
@@ -93,3 +93,10 @@ def classify(
     if trace_id:
         rationale += f" trace_id={trace_id}"
     return ClassificationResult(label=label, rationale=rationale)
+
+if __name__ == "__main__":
+    # Simple test
+    test_message = "My name is John. I love how easy it is to use your mobile app!"
+    result = classify(test_message)
+    print(f"Message: {test_message}")
+    print(f"Classification: {result.label}, Rationale: {result.rationale}")
