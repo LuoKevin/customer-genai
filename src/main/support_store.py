@@ -19,30 +19,35 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 ticket_number TEXT UNIQUE NOT NULL,
                 status TEXT NOT NULL,
-                message TEXT NOT NULL
+                message TEXT NOT NULL,
+                customer_name TEXT
             )
             """
         )
 
 
-def create_ticket(ticket_number: str, message: str, status: str = "Unresolved") -> None:
+def create_ticket(
+    ticket_number: str,
+    message: str,
+    status: str = "Unresolved",
+    customer_name: Optional[str] = None,
+) -> None:
     """Insert or replace a ticket record."""
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute(
             """
-            INSERT OR REPLACE INTO support_tickets (ticket_number, status, message)
-            VALUES (?, ?, ?)
+            INSERT OR REPLACE INTO support_tickets (ticket_number, status, message, customer_name)
+            VALUES (?, ?, ?, ?)
             """,
-            (ticket_number, status, message),
+            (ticket_number, status, message, customer_name),
         )
 
 
-def get_ticket_status(ticket_number: str) -> Optional[str]:
-    """Return the status for a ticket number, or None if not found."""
+def get_ticket_status(ticket_number: str) -> Optional[tuple[str, Optional[str]]]:
+    """Return (status, customer_name) for a ticket number, or None if not found."""
     with sqlite3.connect(DB_PATH) as conn:
         row = conn.execute(
-            "SELECT status FROM support_tickets WHERE ticket_number = ?",
+            "SELECT status, customer_name FROM support_tickets WHERE ticket_number = ?",
             (ticket_number,),
         ).fetchone()
-    return row[0] if row else None
-
+    return (row[0], row[1]) if row else None

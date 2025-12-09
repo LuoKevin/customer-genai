@@ -8,6 +8,7 @@ This keeps things simple:
 Requirements: `OPENAI_API_KEY` (and optionally `OPENAI_BASE_URL`) set in the environment.
 """
 
+import json
 import re
 import secrets
 from typing import Optional
@@ -34,24 +35,55 @@ def handle_message(message: str, *, trace_id: Optional[str] = None, model: str =
     init_db()
     classification = classify(message, trace_id=trace_id, model=model)
 
+    customer_name = _extract_customer_name(message, model)
     if classification.label == ClassificationLabel.QUERY:
         agent = _query_agent(model)
         ticket_number = _extract_ticket_number(message)
-        ticket_status = get_ticket_status(ticket_number) if ticket_number else None
-        task = _query_task(agent, message, trace_id, ticket_number, ticket_status)
+        ticket_info = get_ticket_status(ticket_number) if ticket_number else None
+        ticket_status, ticket_customer_name = ticket_info if ticket_info else (None, None)
+        task = _query_task(agent, message, trace_id, ticket_number, ticket_status, ticket_customer_name)
     elif classification.label == ClassificationLabel.POSITIVE_FEEDBACK:
         agent = _positive_feedback_agent(model)
-        task = _positive_feedback_task(agent, message, trace_id)
+        task = _positive_feedback_task(agent, message, trace_id, customer_name)
     else:
         agent = _negative_feedback_agent(model)
         ticket_number = _generate_ticket_number()
-        create_ticket(ticket_number, message, status="Unresolved")
-        task = _negative_feedback_task(agent, message, trace_id, ticket_number)
+        create_ticket(ticket_number, message, status="Unresolved", customer_name=customer_name)
+        task = _negative_feedback_task(agent, message, trace_id, ticket_number, customer_name)
 
     crew = Crew(agents=[agent], tasks=[task], process=Process.sequential)
     result = crew.kickoff({"message": message, "trace_id": trace_id, "classification": classification.label.value})
     return str(result)
 
+def _extract_customer_name(message: str, model: str) -> Optional[str]:
+    """Extract a customer name using a JSON schema for stability."""
+    client = get_openai_client()
+    try:
+        completion = client.chat.completions.create(
+            model=model,
+            temperature=0,
+            response_format={"type": "json_object"},
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a banking customer support triage agent. "
+                        "Extract the customer's name from the message if present. "
+                        'Return JSON like {"name": "<name>"} or {"name": null}.'
+                    ),
+                },
+                {"role": "user", "content": message},
+            ],
+        )
+        raw = completion.choices[0].message.content or "{}"
+        data = json.loads(raw)
+        name = data.get("name")
+        if name is None:
+            return None
+        name_str = str(name).strip()
+        return name_str if name_str and name_str.lower() != "none" else None
+    except Exception:
+        return None
 
 def _positive_feedback_agent(model: str) -> Agent:
     return Agent(
@@ -63,9 +95,10 @@ def _positive_feedback_agent(model: str) -> Agent:
     )
 
 
-def _positive_feedback_task(agent: Agent, message: str, trace_id: Optional[str]) -> Task:
+def _positive_feedback_task(agent: Agent, message: str, trace_id: Optional[str], customer_name: Optional[str]) -> Task:
     return Task(
         description=(
+            f"CustomerName:{customer_name}\n" if customer_name else ""
             f"Customer message: {message}\n"
             "Respond with format: `Thank you for your kind words, [CustomerName]! We're delighted to assist you.` "
             "If no name is provided, omit the name gracefully.\n"
@@ -93,9 +126,11 @@ def _negative_feedback_task(
     message: str,
     trace_id: Optional[str],
     ticket_number: str,
+    customer_name: Optional[str],
 ) -> Task:
     return Task(
         description=(
+            f"CustomerName:{customer_name}\n" if customer_name else ""
             f"Customer message: {message}\n"
             f"Ticket number: {ticket_number}\n"
             "Respond with empathy, apologize, and include the ticket number.\n"
@@ -125,6 +160,7 @@ def _query_task(
     trace_id: Optional[str],
     ticket_number: Optional[str],
     ticket_status: Optional[str],
+    customer_name: Optional[str]
 ) -> Task:
     status_text = (
         f"Ticket {ticket_number} status: {ticket_status}"
@@ -137,6 +173,7 @@ def _query_task(
     )
     return Task(
         description=(
+            f"CustomerName:{customer_name}\n" if customer_name else ""
             f"Customer message: {message}\n"
             f"{status_text}\n"
             "If ticket status is known, return it. If not found, state that. "
